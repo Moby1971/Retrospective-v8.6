@@ -1242,6 +1242,14 @@ classdef retroData
             % Write 512 byte header
             fwrite(fid1,header1,'int32');
 
+%             RETROSPECTIVE 6 and 7:
+%                 if (size(data,3)>1)
+%                     data = flip(permute(data,[2,3,1,4,5,6]),3);
+%                 else
+%                     qdata = flip(permute(data,[2,1,3,4,5,6]),2);
+%                 end
+
+
             if (size(kSpaceMRDdata,3)>1)
                 kSpaceMRDdata = flip(permute(kSpaceMRDdata,[1,3,2,4,5,6,7]),2);
             else
