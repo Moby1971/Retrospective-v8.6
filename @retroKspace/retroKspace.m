@@ -228,9 +228,9 @@ classdef retroKspace
             %     /    |/      |/    |/        |/
             %     12345 1 23 45 12345 1 2 3 4 5  <- bins
             %
-            
+
             card_assignments = zeros(nr_klines,1);                      % zero = no assignment (breathing, begin/end of data)
-            for i=startpoint:endpoint                                % start search to which heartbeat the measurement belongs
+            parfor i=startpoint:endpoint                                   % start search to which heartbeat the measurement belongs
   
                 j=loc_maxj_card;
                 while j>1 && i<bin_times_card(j)  %#ok<*PFBNS> 
@@ -1354,7 +1354,7 @@ classdef retroKspace
             y = linspace(-domain/2, domain/2, domain);
             x = linspace(-domain/2, domain/2, domain);
             
-            for i=1:domain
+            parfor i=1:domain
                 
                 for j=1:domain
                     
@@ -1396,7 +1396,7 @@ classdef retroKspace
             y = linspace(-domain/2, domain/2, domain);
             x = linspace(-domain/2, domain/2, domain);
             
-            for i=1:domain
+            parfor i=1:domain
                 
                 for j=1:domain
                     
