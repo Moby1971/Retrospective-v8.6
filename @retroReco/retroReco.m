@@ -655,10 +655,12 @@ classdef retroReco
                 
                 % rearrange to correct orientation: frames, x, y, z, dynamics
                 imageReg = reshape(imageReg,[dimz,dimy,dimx,dimf,dimd]);
-                imageOut = flip(flip(permute(imageReg,[4,3,2,1,5]),3),4);
+                %imageOut = flip(flip(permute(imageReg,[4,3,2,1,5]),3),4);
+                imageOut = flip(permute(imageReg,[4,3,2,1,5]),3);
                 
                 % sense map orientations: x, y, z, map1, map2
-                senseMap1 = flip(flip(permute(abs(sensitivities),[3,2,1,4,5,6,7,8,9,10,11,12,13,14]),2),3);
+                % senseMap1 = flip(flip(permute(abs(sensitivities),[3,2,1,4,5,6,7,8,9,10,11,12,13,14]),2),3);
+                senseMap1 = flip(permute(abs(sensitivities),[3,2,1,4,5,6,7,8,9,10,11,12,13,14]),2);
                 
                 % normalize sense map to reasonable value range
                 senseMap1 = senseMap1*4095/max(senseMap1(:));
@@ -797,12 +799,16 @@ classdef retroReco
         % ---------------------------------------------------------------------------------
         % Normalize movie intensity
         % ---------------------------------------------------------------------------------
-        function objReco = normImages(objReco)
+        function objReco = normImages(objReco,objData)
             
             % normalize the images to 2^15 range
             
             objReco.movieExp = round(32766*objReco.movieExp/max(objReco.movieExp(:)));
             objReco.movieApp = objReco.movieExp;
+
+            if objData.PHASE_ORIENTATION == 0
+                objReco.movieApp = flip(objReco.movieApp,2);
+            end
             
         end % normImages
         

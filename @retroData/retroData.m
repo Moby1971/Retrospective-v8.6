@@ -1242,21 +1242,31 @@ classdef retroData
             % Write 512 byte header
             fwrite(fid1,header1,'int32');
 
-%             RETROSPECTIVE 6 and 7:
-%                 if (size(data,3)>1)
-%                     data = flip(permute(data,[2,3,1,4,5,6]),3);
+            
+            if strcmp(obj.dataType,'3D') 
+                kSpaceMRDdata = flip(permute(kSpaceMRDdata,[1,3,2,4,5,6,7]),1);
+            else
+
+                kSpaceMRDdata = flip(kSpaceMRDdata,1);
+            end
+
+
+
+    %        RETROSPECTIVE 6 and 7:
+%                 if (size(kSpaceMRDdata,3)>1)
+%                     kSpaceMRDdata = flip(permute(kSpaceMRDdata,[2,3,1,4,5,6]),1);
 %                 else
-%                     qdata = flip(permute(data,[2,1,3,4,5,6]),2);
+%                     kSpaceMRDdata = flip(permute(kSpaceMRDdata,[2,1,3,4,5,6]),2);
 %                 end
 
 
-            if (size(kSpaceMRDdata,3)>1)
-                kSpaceMRDdata = flip(permute(kSpaceMRDdata,[1,3,2,4,5,6,7]),2);
-            else
-                if obj.PHASE_ORIENTATION
-                    kSpaceMRDdata = flip(kSpaceMRDdata,1);
-                end
-            end
+%             if (size(kSpaceMRDdata,3)>1)
+%                 kSpaceMRDdata = flip(permute(kSpaceMRDdata,[1,3,2,4,5,6,7]),2);
+%             else
+%                 if obj.PHASE_ORIENTATION
+%                     kSpaceMRDdata = flip(kSpaceMRDdata,1);
+%                 end
+%             end
 
             % Convert to 1D array with alternating real and imag part of the data
             temp = kSpaceMRDdata;
