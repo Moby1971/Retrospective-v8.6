@@ -655,12 +655,12 @@ classdef retroReco
                 
                 % rearrange to correct orientation: frames, x, y, z, dynamics
                 imageReg = reshape(imageReg,[dimz,dimy,dimx,dimf,dimd]);
-                %imageOut = flip(flip(permute(imageReg,[4,3,2,1,5]),3),4);
-                imageOut = flip(permute(imageReg,[4,3,2,1,5]),3);
+                imageOut = flip(flip(permute(imageReg,[4,3,2,1,5]),3),4);
+                imageOut = circshift(imageOut,1,4);
                 
                 % sense map orientations: x, y, z, map1, map2
-                % senseMap1 = flip(flip(permute(abs(sensitivities),[3,2,1,4,5,6,7,8,9,10,11,12,13,14]),2),3);
-                senseMap1 = flip(permute(abs(sensitivities),[3,2,1,4,5,6,7,8,9,10,11,12,13,14]),2);
+                senseMap1 = flip(flip(permute(abs(sensitivities),[3,2,1,4,5,6,7,8,9,10,11,12,13,14]),2),3);
+                senseMap1 = circshift(senseMap1,1,4);
                 
                 % normalize sense map to reasonable value range
                 senseMap1 = senseMap1*4095/max(senseMap1(:));
