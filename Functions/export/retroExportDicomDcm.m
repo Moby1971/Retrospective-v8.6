@@ -17,6 +17,8 @@ dimz = size(movie,4);
 nrDynamics = size(movie,5);
 heartRate = app.retroNavPars.meanHeartRate;
 respRate = app.retroNavPars.meanRespRate;
+slope = double(app.retroRecoPars.rescaleSlope);
+intercept = double(app.retroRecoPars.rescaleIntercept);
 
 % Reading in the DICOM header information
 listing = dir(fullfile(dcmdir, '*.dcm'));
@@ -62,8 +64,11 @@ for frame=1:nrFrames
             % Generate a dicom header
             dcmHeader = generate_dicomheader_dcm;
 
+            % The image
+            im = squeeze(cast(round(movie(frame,:,:,slice,dyn)),'uint16'));
+
             % Write dicom file
-            dicomwrite(squeeze(cast(round(movie(frame,:,:,slice,dyn)),'uint16')), fname, dcmHeader);
+            dicomwrite(im, fname, dcmHeader, "CreateMode","copy");
 
             cnt = cnt + 1;
 
@@ -144,8 +149,8 @@ end
             dcmHead.HighBit = 14;
             dcmHead.PixelRepresentation = 0;
             dcmHead.PixelPaddingValue = 0;
-            dcmHead.RescaleIntercept = 0;
-            dcmHead.RescaleSlope = 1;
+            dcmHead.RescaleIntercept = intercept;
+            dcmHead.RescaleSlope = slope;
             dcmHead.HeartRate = heartRate;
             dcmHead.NumberOfSlices = dimz;
             dcmHead.CardiacNumberOfImages = nrFrames;
@@ -203,8 +208,8 @@ end
             dcmHead.HighBit = 14;
             dcmHead.PixelRepresentation = 0;
             dcmHead.PixelPaddingValue = 0;
-            dcmHead.RescaleIntercept = 0;
-            dcmHead.RescaleSlope = 1;
+            dcmHead.(dicomlookup('0028','1052')) = intercept;
+            dcmHead.RescaleSlope = slope;
             dcmHead.HeartRate = heartRate;
             dcmHead.NumberOfSlices = dimz;
             dcmHead.CardiacNumberOfImages = nrFrames;

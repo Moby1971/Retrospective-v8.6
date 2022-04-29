@@ -23,10 +23,13 @@ classdef retroNav
         
         % Triggering assignments
         splineFactor = 60           % data interpolation factor to prevent navigator discretization by TR
-        heartTrigPoints
-        respTrigPoints
+        heartTrigPoints             % in units of samples
+        respTrigPoints              % in units of samples
+        heartTrigTime               % in units of ms
+        respTrigTime                % in units of ms
         respPercentage = 30
-        respWindow
+        respWindow                  % resp window in units of samples
+        respWindowTime              % resp start and end values in units of ms
         
         % Rates
         heartRateTime
@@ -619,6 +622,8 @@ classdef retroNav
                 objNav.heartTrigPoints = locs/interpolationfactor;
                 
             end
+
+            objNav.heartTrigTime = objNav.heartTrigPoints*objData.TR - objData.TR; % time starts at zero
             
         end % trigPointsHeart
         
@@ -627,15 +632,13 @@ classdef retroNav
         % ---------------------------------------------------------------------------------
         % Determine the respiration trigger points
         % ---------------------------------------------------------------------------------
-        function objNav = trigPointsResp(objNav)
+        function objNav = trigPointsResp(objNav, objData)
             
             % extracts the ECG trigger points from the navigators
             
             % find the peaks and locations
             objNav.respTrigPoints = retroNav.peakFinder(objNav.respNav',[],[],[],false,true);
-            
-            % trigger points are in units of samples (actual time is thus heartTrigPoints*TR)
-            
+             
             % backup plan in case peakFinder fails
             if length(objNav.respTrigPoints)<10
                 
@@ -649,9 +652,12 @@ classdef retroNav
                 
                 % recalculate orginal fractional time point peak positions
                 objNav.respTrigPoints = locs/interpolationfactor;
-                
+                         
             end
-            
+         
+            % trigger points are in units of samples (actual time is thus heartTrigPoints*TR - TR)
+            objNav.respTrigTime = objNav.respTrigPoints*objData.TR  - objData.TR; % time starts at zero
+
         end % trigPointsResp
         
         
@@ -732,23 +738,32 @@ classdef retroNav
             rlocs = objNav.respTrigPoints;
             mean_resp = mean(objNav.respRateTimeFiltered);
             resp_percentage = objNav.respPercentage;
-            tr = objData.TR;
             nr_klines = objData.nrKlines;
+            objNav.respWindowTime = [];
             
             % this function creates an array (time line) of rectangular boxes of 0's and 1's around the detected respiratory signals
             % later on 1 means that there is a respiration, for which the k-lines will be discarded
             
-            resp_a = round(0.5*(resp_percentage/100)*(60/mean_resp)*1000/tr);   % 1/2 window width around respiratory peak locations
+            respWin = 0.5*(resp_percentage/100)*(60/mean_resp)*1000/objData.TR;   % 1/2 window width around respiratory peak locations
             
             window = zeros(nr_klines,1);   % fill array with zeros
             
             for i = 1 : size(rlocs,2)
-                center = round(rlocs(1,i));
-                for j = center - resp_a : center + resp_a
+                
+                % Center of the respiration window
+                center = rlocs(1,i);
+                
+                % Beginning and end of the respiration window in ms, time starts at zero
+                objNav.respWindowTime(i,1) = (center - respWin)*objData.TR  - objData.TR;
+                objNav.respWindowTime(i,2) = (center + respWin)*objData.TR  - objData.TR;
+
+                % Set respiration window mask to 0 during respiration
+                for j = round(center - respWin) : round(center + respWin)
                     if (j>0) && (j<=nr_klines)
                         window(j)=1;
                     end
                 end
+
             end
             
             objNav.respWindow = window;

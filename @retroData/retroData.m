@@ -1453,6 +1453,23 @@ classdef retroData
 
 
         
+
+        % ---------------------------------------------------------------------------------
+        % Write physiological data to files
+        % ---------------------------------------------------------------------------------
+        function objData = writePhysLog(objData,objNav,exportPath)
+
+            writematrix(objNav.heartTrigTime',strcat(exportPath,filesep,'cardtrigpoints.txt'),'Delimiter','tab');
+
+            writematrix(objNav.respTrigTime',strcat(exportPath,filesep,'resptrigpoints.txt'),'Delimiter','tab');
+            
+            writematrix(objNav.respWindowTime,strcat(exportPath,filesep,'respwindow.txt'),'Delimiter','tab');
+
+        end % writePhysLog
+
+
+
+        
     end % methods
     
 end % retroData

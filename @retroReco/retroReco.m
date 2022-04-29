@@ -8,6 +8,8 @@ classdef retroReco
         movieApp                        % movie for viewing in the app
         senseMap                        % sense map
         sos = true                      % Sum of squares reco true or false
+        rescaleSlope                    % Dicom info RescaleSlope for image scaling
+        rescaleIntercept                % Dicom info RescaleIntercept for image scaling
         multiSliceFlag = false          % multi-slice true or false
         multiDynamicFlag = false        % mutli-dynamic true or false
         
@@ -802,8 +804,11 @@ classdef retroReco
         function objReco = normImages(objReco,objData)
             
             % normalize the images to 2^15 range
-            
-            objReco.movieExp = round(32766*objReco.movieExp/max(objReco.movieExp(:)));
+
+            objReco.rescaleIntercept = 0;                           % Dicom rescale intercept
+            objReco.rescaleSlope = max(objReco.movieExp(:));        % Dicom rescale slope
+   
+            objReco.movieExp = round(32765*objReco.movieExp/objReco.rescaleSlope);
             objReco.movieApp = objReco.movieExp;
 
             if objData.PHASE_ORIENTATION == 0
@@ -815,7 +820,7 @@ classdef retroReco
         
 
         % ---------------------------------------------------------------------------------
-        % Normalize movie intensity
+        % Determine whether movie has multiple slices and/or dynamics
         % ---------------------------------------------------------------------------------
         function objReco = determineMultiDimensions(objReco)
             
