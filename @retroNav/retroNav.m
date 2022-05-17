@@ -733,7 +733,7 @@ classdef retroNav
         % ---------------------------------------------------------------------------------
         % Determine respiration windows
         % ---------------------------------------------------------------------------------
-        function objNav = makeRespWindow(objNav, objData)
+        function objNav = makeRespWindow(objNav, app, objData)
             
             rlocs = objNav.respTrigPoints;
             mean_resp = mean(objNav.respRateTimeFiltered);
@@ -760,12 +760,17 @@ classdef retroNav
                 % Set respiration window mask to 0 during respiration
                 for j = round(center - respWin) : round(center + respWin)
                     if (j>0) && (j<=nr_klines)
-                        window(j)=1;
+                        window(j) = 1;
                     end
                 end
 
             end
             
+            % Set window to expiration (0) or inspiration (1)
+            if app.RespirationToggleCheckBox.Value == 1
+                window = 1 - window;
+            end
+
             objNav.respWindow = window;
             
         end % makeRespWindow

@@ -1459,11 +1459,17 @@ classdef retroData
         % ---------------------------------------------------------------------------------
         function objData = writePhysLog(objData,objNav,exportPath)
 
-            writematrix(objNav.heartTrigTime',strcat(exportPath,filesep,'cardtrigpoints.txt'),'Delimiter','tab');
+            if ~isempty(objNav.heartTrigTime)
+                writematrix(objNav.heartTrigTime',strcat(exportPath,filesep,'cardtrigpoints.txt'),'Delimiter','tab');
+            end
 
-            writematrix(objNav.respTrigTime',strcat(exportPath,filesep,'resptrigpoints.txt'),'Delimiter','tab');
-            
-            writematrix(objNav.respWindowTime,strcat(exportPath,filesep,'respwindow.txt'),'Delimiter','tab');
+            if ~isempty(objNav.respTrigTime)
+                writematrix(objNav.respTrigTime',strcat(exportPath,filesep,'resptrigpoints.txt'),'Delimiter','tab');
+            end
+
+            if ~isempty(objNav.respWindowTime)
+                writematrix(objNav.respWindowTime,strcat(exportPath,filesep,'respwindow.txt'),'Delimiter','tab');
+            end
 
         end % writePhysLog
 

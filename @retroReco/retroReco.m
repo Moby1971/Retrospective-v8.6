@@ -330,6 +330,10 @@ classdef retroReco
                         picsCommand = [picsCommand,' -RT:2048:0:',num2str(TVd)];
                     end
                     imageReg = bart(app,picsCommand,kspacePics,sensitivities);
+
+                    % total-generalized-variation denoising. Seems not really useful
+                    % imageReg2 = bart(app,'tgv 0.001 1030',imageReg);
+                    % imageReg = imageReg2(:,:,:,:,:,:,:,:,:,:,:,:,:,:,:,1);
                     
                     % Take absolute values
                     imageReg = abs(imageReg);
