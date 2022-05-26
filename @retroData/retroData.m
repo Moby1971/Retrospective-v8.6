@@ -1315,18 +1315,23 @@ classdef retroData
                 par.tr_extra_us
                 };
 
+
             % Replace all simple valued parameters
             for i = 1:length(parameters)
 
                 txt = parameters{i};
                 var = replacePars{i};
-
                 pos = strfind(inputFooter,txt);
 
                 if ~isempty(pos)
                     oldTextLength = strfind(inputFooter(pos+length(txt):pos+length(txt)+6),char(13))-1;
+                    if isempty(oldTextLength)
+                        oldTextLength = strfind(inputFooter(pos+length(txt):pos+length(txt)+6),newline)-1;
+                    end
+
                     newText = [num2str(var),'     '];
                     newText = newText(1:6);
+
                     inputFooter = replaceBetween(inputFooter,pos+length(txt),pos+length(txt)+oldTextLength-1,newText);
                 end
 
