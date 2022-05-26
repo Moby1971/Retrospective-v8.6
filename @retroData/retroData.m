@@ -1324,15 +1324,16 @@ classdef retroData
                 pos = strfind(inputFooter,txt);
 
                 if ~isempty(pos)
-                    oldTextLength = strfind(inputFooter(pos+length(txt):pos+length(txt)+6),char(13))-1;
-                    if isempty(oldTextLength)
-                        oldTextLength = strfind(inputFooter(pos+length(txt):pos+length(txt)+6),newline)-1;
+                    try
+                        oldTextLength = strfind(inputFooter(pos+length(txt):pos+length(txt)+6),char(13))-1;
+                        if isempty(oldTextLength)
+                            oldTextLength = strfind(inputFooter(pos+length(txt):pos+length(txt)+6),newline)-1;
+                        end
+                        newText = [num2str(var),'     '];
+                        newText = newText(1:6);
+                        inputFooter = replaceBetween(inputFooter,pos+length(txt),pos+length(txt)+oldTextLength-1,newText);
+                    catch
                     end
-
-                    newText = [num2str(var),'     '];
-                    newText = newText(1:6);
-
-                    inputFooter = replaceBetween(inputFooter,pos+length(txt),pos+length(txt)+oldTextLength-1,newText);
                 end
 
             end
@@ -1433,18 +1434,30 @@ classdef retroData
                 if ~isempty(pos)
 
                     if ~isstring(var)
-
-                        oldtxtlength = strfind(inputrpr(pos+length(txt):pos+length(txt)+15),char(13))-1;
-                        newtext = [num2str(var),'     '];
-                        newtext = newtext(1:6);
-                        inputrpr = replaceBetween(inputrpr,pos+length(txt),pos+length(txt)+oldtxtlength-1,newtext);
+    
+                        try
+                            oldtxtlength = strfind(inputrpr(pos+length(txt):pos+length(txt)+15),char(13))-1;
+                            if isempty(oldtxtlength)
+                                oldtxtlength = strfind(inputrpr(pos+length(txt):pos+length(txt)+15),newline)-1;
+                            end
+                            newtext = [num2str(var),'     '];
+                            newtext = newtext(1:6);
+                            inputrpr = replaceBetween(inputrpr,pos+length(txt),pos+length(txt)+oldtxtlength-1,newtext);
+                        catch
+                        end
 
                     else
 
-                        oldtxtlength = strfind(inputrpr(pos+length(txt):pos+length(txt)+15),char(13))-1;
-                        newtext = strcat(" ",var,"           ");
-                        newtext = extractBefore(newtext,12);
-                        inputrpr = replaceBetween(inputrpr,pos+length(txt),pos+length(txt)+oldtxtlength-1,newtext);
+                        try
+                            oldtxtlength = strfind(inputrpr(pos+length(txt):pos+length(txt)+15),char(13))-1;
+                            if isempty(oldtxtlength)
+                                oldtxtlength = strfind(inputrpr(pos+length(txt):pos+length(txt)+15),newline)-1;
+                            end
+                            newtext = strcat(" ",var,"           ");
+                            newtext = extractBefore(newtext,12);
+                            inputrpr = replaceBetween(inputrpr,pos+length(txt),pos+length(txt)+oldtxtlength-1,newtext);
+                        catch
+                        end
 
                     end
 
