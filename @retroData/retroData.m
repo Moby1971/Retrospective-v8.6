@@ -1329,6 +1329,7 @@ classdef retroData
                         if isempty(oldTextLength)
                             oldTextLength = strfind(inputFooter(pos+length(txt):pos+length(txt)+6),newline)-1;
                         end
+
                         newText = [num2str(var),'     '];
                         newText = newText(1:6);
                         inputFooter = replaceBetween(inputFooter,pos+length(txt),pos+length(txt)+oldTextLength-1,newText);
