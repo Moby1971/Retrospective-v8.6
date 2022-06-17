@@ -9,7 +9,9 @@ classdef retroKspace
         kSpace
         kSpaceMrd
         kSpaceAvg
+        kSpaceTraj
         trajectory
+        gradTrajectory
         
         % Cardiac and respiratory binning
         cardBins
@@ -47,7 +49,7 @@ classdef retroKspace
                         objKspace.raw{i} = objData.data{i}(:,:,:,objData.primary_navigator_point+objData.nr_nav_points_discarded+1:end);
                     end
                     
-                case '2Dradial'
+                case {'2Dradial','3Dute'}
                     for i = 1:objData.nr_coils
                         objKspace.raw{i} = objData.data{i};
                     end
@@ -194,7 +196,7 @@ classdef retroKspace
         % ---------------------------------------------------------------------------------
         function objKspace = assignBinFrames(objKspace, objNav, objData, app)
             
-            % assigns all the measured k-lines to a specific cardiac phase and respiratory phase bin
+            % Assigns all the measured k-lines to a specific cardiac phase and respiratory phase bin
             
             bin_times_card = objKspace.cardBins';
             bin_times_resp = objKspace.respBins';
@@ -202,12 +204,7 @@ classdef retroKspace
             nr_klines = objData.nrKlines;
             nr_card_frames = app.nrCardFrames;
             nr_resp_frames = app.nrRespFrames;
-            
-            startpoint = round(bin_times_resp(2)+1);                        % first measurement to be considered
-            endpoint = round(bin_times_resp(length(bin_times_resp))-1);     % last measurement to be considered
-            loc_maxj_card = length(bin_times_card);                         % last bin border
-            loc_maxj_resp = length(bin_times_resp);
-            
+           
             % Assignmnent of all k-line acquisitions to a specific bin
             %
             % INPUT : bin_times_card = array of all time-stamps (units of samples) of the whole acquisition
@@ -229,29 +226,41 @@ classdef retroKspace
             %     12345 1 23 45 12345 1 2 3 4 5  <- bins
             %
 
-            card_assignments = zeros(nr_klines,1);                      % zero = no assignment (breathing, begin/end of data)
-            parfor i=startpoint:endpoint                                   % start search to which heartbeat the measurement belongs
-  
-                j=loc_maxj_card;
-                while j>1 && i<bin_times_card(j)  %#ok<*PFBNS> 
-                    j=j-1;
-                end
+            try
+                % Use MEX function if available
+                [card_assignments,resp_assignments] = assignBinFramesFnc_mex(bin_times_card,bin_times_resp,resp_window,nr_klines,nr_card_frames,nr_resp_frames);
+            catch
 
-                card_assignments(i) = mod(j-1,nr_card_frames)+1;        % assign to bin frame number = j modulus nr_frames
-                if nr_resp_frames==1 && resp_window(i)==1               % if measurement is during respiration and only 1 resp state, put back to 0 to discard this k-line
+                % Otherwise use Matlab code, somewhat slower
+                startpoint = round(bin_times_resp(2)+1);                        % first measurement to be considered
+                endpoint = round(bin_times_resp(length(bin_times_resp))-1);     % last measurement to be considered
+                loc_maxj_card = length(bin_times_card);                         % last bin border
+                loc_maxj_resp = length(bin_times_resp);
+
+                card_assignments = zeros(nr_klines,1);                          % zero = no assignment (breathing, begin/end of data)
+                parfor i=startpoint:endpoint                                    % start search to which heartbeat the measurement belongs
+                    j=loc_maxj_card;
+                    while j>1 && i<bin_times_card(j)  %#ok<*PFBNS>
+                        j=j-1;
+                    end
+                    card_assignments(i) = mod(j-1,nr_card_frames)+1;            % assign to bin frame number = j modulus nr_frames
+                    if nr_resp_frames==1 && resp_window(i)==1                   % if measurement is during respiration and only 1 resp state, put back to 0 to discard this k-line
                         card_assignments(i) = 0;
+                    end
                 end
-            end
 
-            resp_assignments = zeros(nr_klines,1);                      % zero = no assignment (breathing, begin/end of data)
-            parfor i=startpoint:endpoint                                % start search to which respiration the measurement belongs
-                j=loc_maxj_resp;
-                while j>1 && i<bin_times_resp(j)
-                    j=j-1;
+                resp_assignments = zeros(nr_klines,1);                      % zero = no assignment (breathing, begin/end of data)
+                parfor i=startpoint:endpoint                                % start search to which respiration the measurement belongs
+                    j=loc_maxj_resp;
+                    while j>1 && i<bin_times_resp(j)
+                        j=j-1;
+                    end
+                    resp_assignments(i) = mod(j-1,nr_resp_frames)+1;        % assign to bin frame number = j modulus nr_frames
                 end
-                resp_assignments(i) = mod(j-1,nr_resp_frames)+1;        % assign to bin frame number = j modulus nr_frames
+
             end
             
+            % Report back
             objKspace.cardBinNrs = card_assignments;
             objKspace.respBinNrs = resp_assignments;
             
@@ -355,7 +364,7 @@ classdef retroKspace
             nr_card_frames = app.nrCardFrames;
             nr_resp_frames = app.nrRespFrames;
             nrdynamics = app.nrDynamics;
-            
+ 
             for coilnr = 1:objData.nr_coils
                 
                 rawdata = objKspace.raw{coilnr};
@@ -382,38 +391,34 @@ classdef retroKspace
                 % includewindow         = data which should be include: 1 = yes, 0 = no
                 % share                 = number of k-space sharing points
                 
-                sorted_kspace = complex(zeros(nr_resp_frames,nr_card_frames,dimz,dimy,dimx,nrdynamics));   % fill temp k-space with zeros
-                sorted_averages = zeros(nr_resp_frames,nr_card_frames,dimz,dimy,dimx,nrdynamics);          % fill temp nr averages array with zeros
                 nr_reps = size(rawdata,1);                                                                      % number of k-space repetitions
                 unsorted_kspace = reshape(rawdata,[1,size(rawdata),1]);
                 
                 % Dynamics assignment
                 totalk = nr_reps * nrKsteps * dimz;
                 dyn_bin_ass = round(linspace(0.5, nrdynamics+0.49, totalk));       % list of increasing integer number 1 .. nr_dynamics evenly spaced over the entire acquistion time
-                
+
                 % Sorting
-                cnt = 0;
-                
-                for slice=1:dimz                    % loop over slices
-                    
-                    for i=1:nr_reps                 % loop through all repetitions
-                        
-                        for j=1:nrKsteps            % loop through all the phase-encoding steps
-                            
-                            cnt = cnt + 1;
-                            
-                            if (card_bin_ass(cnt) > 0) && (includeWindow(cnt) == 1)         % if assigment = 0, this acquisition is discarded
-                                
-                                kline = traj(mod(cnt - 1,nrKsteps) + 1);             % the phase-encoding step using the trajectory info
-                                sorted_kspace(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) = sorted_kspace(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) + unsorted_kspace(1,i,slice,j,:,1);   % add the data to the correct k-position
-                                sorted_averages(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) = sorted_averages(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) + 1;        % increase the number of averages with 1
-                                
+                try
+                    % Use mex file if possible
+                    [sorted_kspace,sorted_averages] = sort2DdataFnc_mex(nr_resp_frames,nr_card_frames,dimz,dimy,dimx,nrdynamics,nr_reps,nrKsteps,traj,unsorted_kspace,card_bin_ass,includeWindow,resp_bin_ass,dyn_bin_ass);
+                catch
+                    % Otherwise sort in Matlab
+                    sorted_kspace = complex(zeros(nr_resp_frames,nr_card_frames,dimz,dimy,dimx,nrdynamics));   % fill temp k-space with zeros
+                    sorted_averages = zeros(nr_resp_frames,nr_card_frames,dimz,dimy,dimx,nrdynamics);          % fill temp nr averages array with zeros
+                    cnt = 0;
+                    for slice=1:dimz                    % loop over slices
+                        for i=1:nr_reps                 % loop through all repetitions
+                            for j=1:nrKsteps            % loop through all the phase-encoding steps
+                                cnt = cnt + 1;
+                                if (card_bin_ass(cnt) > 0) && (includeWindow(cnt) == 1)         % if assigment = 0, this acquisition is discarded
+                                    kline = traj(mod(cnt - 1,nrKsteps) + 1);             % the phase-encoding step using the trajectory info
+                                    sorted_kspace(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) = sorted_kspace(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) + unsorted_kspace(1,i,slice,j,:,1);   % add the data to the correct k-position
+                                    sorted_averages(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) = sorted_averages(resp_bin_ass(cnt),card_bin_ass(cnt),slice,kline,:,dyn_bin_ass(cnt)) + 1;        % increase the number of averages with 1
+                                end
                             end
-                            
                         end
-                        
                     end
-                    
                 end
                 
                 % Temp k-space
@@ -502,12 +507,12 @@ classdef retroKspace
                 new_kspace = new_kspace./new_averages;
                 new_kspace(isnan(new_kspace)) = complex(0); % correct for NaN or Inf because of division by zero in case of missing k-lines
                 new_kspace(isinf(new_kspace)) = complex(0);
-                
+
                 % Apply a circular Tukey filter
                 filterwidth = 0.1;
                 tukeyfilter(1,1,1,:,:,1) = retroKspace.circtukey2D(dimy,dimx,row,col,filterwidth);
                 new_kspace = new_kspace.*tukeyfilter;
-                
+
                 % Report back
                 objKspace.kSpace{coilnr} = new_kspace;
                 objKspace.kSpaceAvg = new_averages;
@@ -522,7 +527,27 @@ classdef retroKspace
         % Fill K-space 3D
         % ---------------------------------------------------------------------------------
         function objKspace = fillKspace3D(objKspace, objData, app)
-            
+
+            % This function creates 2 arrays
+            % (1) the 3D kspace data sorted into the correct cardiac frames and phase-encoding positions
+            % (2) an array with the same size that keeps track of the number of averages per k-space point for normalization/statistics purposes
+
+            % Required input:
+            %
+            % raw                   = unsorted k-space data
+            % repstart              = first k-space repetition that is considered, used for partial reconstruction of the data
+            % navheart              = navigator signal, used to construct an average heartbeat
+            % nr_of_card_frames     = number of desired cardiac frames, must be consisted with bin assignments (bin_ass)
+            % dimz                  = 2nd phase encoding dimension
+            % dimy                  = dimensions of the images: dimy (phase encoding)
+            % nrKsteps              = number of k-lines in 1 repetition
+            % dimx                  = dimensions of the images: dimx (readout)
+            % card_bin_ass          = the cardiac bin assignment array for all measured k-lines
+            % resp_bin_ass          = the respiratory bin assignment array for all measured k-lines
+            % traj                  = the k-space trajectory
+            % includewindow         = data which should be include: 1 = yes, 0 = no
+            % share                 = number of weighted view sharing points
+
             share = app.SharingEditField.Value;
             objKspace.kSpace = cell(objData.nr_coils);
             objKspace.kSpaceAvg = [];
@@ -537,42 +562,22 @@ classdef retroKspace
             nr_card_frames = app.nrCardFrames;
             nr_resp_frames = app.nrRespFrames;
             nrdynamics = app.nrDynamics;
-            
+
             for coilnr = 1:objData.nr_coils
-                
+
                 rawdata = objKspace.raw{coilnr};
-                
-                % This function creates 2 arrays
-                % (1) the 3D kspace data sorted into the correct cardiac frames and phase-encoding positions
-                % (2) an array with the same size that keeps track of the number of averages per k-space point for normalization/statistics purposes
-                
-                % Required input:
-                %
-                % raw                   = unsorted k-space data
-                % repstart              = first k-space repetition that is considered, used for partial reconstruction of the data
-                % navheart              = navigator signal, used to construct an average heartbeat
-                % nr_of_card_frames     = number of desired cardiac frames, must be consisted with bin assignments (bin_ass)
-                % dimz                  = 2nd phase encoding dimension
-                % dimy                  = dimensions of the images: dimy (phase encoding)
-                % nrKsteps              = number of k-lines in 1 repetition
-                % dimx                  = dimensions of the images: dimx (readout)
-                % card_bin_ass          = the cardiac bin assignment array for all measured k-lines
-                % resp_bin_ass          = the respiratory bin assignment array for all measured k-lines
-                % traj                  = the k-space trajectory
-                % includewindow         = data which should be include: 1 = yes, 0 = no
-                % share                 = number of weighted view sharing points
-                
+
                 sorted_kspace = complex(zeros(nr_resp_frames,nr_card_frames,dimz,dimy,dimx,nrdynamics));    % fill temp k-space with zeros
                 sorted_averages = zeros(nr_resp_frames,nr_card_frames,dimz,dimy,dimx,nrdynamics);  % fill temp nr averages array with zeros
                 nr_reps = size(rawdata,1);                                                         % number of k-space repetitions
                 unsorted_kspace = reshape(rawdata,[1,size(rawdata),1]);
-                
+
                 % dynamics assignment
                 totalk = nr_reps * nrKsteps * dimz;
                 dyn_bin_ass = round(linspace(0.5, nrdynamics+0.49, totalk));       % list of increasing integer number 1 .. nr_dynamics evenly spaced over the entire acquistion time
-                
+
                 % adapt trajectory for 3D acqusition
-                
+
                 % the y-dimension
                 traj3D_y = zeros(nr_reps * nrKsteps * dimz,1);
                 cnt = 1;
@@ -584,14 +589,14 @@ classdef retroKspace
                         end
                     end
                 end
-                
+
                 % the z-dimension
                 traj3D_z = zeros(nr_reps * nrKsteps * dimz,1);
-                
+
                 switch objData.pe2_centric_on
-                    
+
                     case 0
-                        
+
                         % linear in the 3rd dimension
                         cnt = 1;
                         for i = 1:nr_reps
@@ -602,9 +607,9 @@ classdef retroKspace
                                 end
                             end
                         end
-                        
+
                     case 1
-                        
+
                         % centric in the 3rd dimension
                         cnt = 1;
                         cf = retroKspace.centricFilling(dimz);
@@ -616,9 +621,9 @@ classdef retroKspace
                                 end
                             end
                         end
-                        
+
                     case 2
-                        
+
                         % special case
                         cnt = 1;
                         for i = 1:nr_reps
@@ -629,48 +634,48 @@ classdef retroKspace
                                 end
                             end
                         end
-                        
+
                 end
-                
+
                 % Do the filling of k-space
                 cnt = 0;
-                
+
                 for i = 1:nr_reps                  % loop through all repetitions
-                    
+
                     for j = 1:nrKsteps             % loop through all the phase-encoding steps
-                        
+
                         for k = 1:dimz             % loop through phase-encoding 3rd dimension
-                            
+
                             cnt = cnt + 1;
-                            
+
                             if (card_bin_ass(cnt) > 0) && (includeWindow(cnt) == 1)     % if assigment == 0, this acquisition is discarded
-                                
+
                                 kline_y = traj3D_y(cnt);            % the phase-encoding step using the 3D trajectory info
                                 kline_z = traj3D_z(cnt);            % the 2nd phase-encoding
-                                
+
                                 sorted_kspace(resp_bin_ass(cnt),card_bin_ass(cnt),kline_z,kline_y,:,dyn_bin_ass(cnt))   = sorted_kspace(resp_bin_ass(cnt),card_bin_ass(cnt),kline_z,kline_y,:,dyn_bin_ass(cnt))   + unsorted_kspace(1,i,k,j,:,1);       % add the data to the correct k-position
                                 sorted_averages(resp_bin_ass(cnt),card_bin_ass(cnt),kline_z,kline_y,:,dyn_bin_ass(cnt)) = sorted_averages(resp_bin_ass(cnt),card_bin_ass(cnt),kline_z,kline_y,:,dyn_bin_ass(cnt)) + 1;                                  % increase the number of averages with 1
-                                
+
                             end
-                            
+
                         end
-                        
+
                     end
-                    
+
                 end
-                
+
                 % temp new k-space copy
                 new_kspace = sorted_kspace;
                 new_averages = sorted_averages;
-                
+
                 % find center of k-space
                 kspacesum = squeeze(sum(sorted_kspace,[1 2 6]));             % sum over all slices frames and dynamics
                 [~,idx] = max(kspacesum(:));
                 [lev, row, col] = ind2sub(size(kspacesum),idx);              % coordinate of k-space maximum = center of k-space
-                
+
                 % weighted view sharing
                 if (share > 0) && (nr_card_frames > 1 || nr_resp_frames > 1)
-                    
+
                     % respiratory of cardiac frames
                     nrframes = nr_card_frames;
                     if nr_resp_frames > 1
@@ -680,13 +685,13 @@ classdef retroKspace
                         sorted_kspace = permute(sorted_kspace,[2,1,3,4,5,6]);
                         sorted_averages = permute(sorted_averages,[2,1,3,4,5,6]);
                     end
-                    
+
                     % determine share range
                     maxshare = round(max([nr_card_frames nr_resp_frames])/2); % maximum number of shares
                     share(share > maxshare) = maxshare;
                     weights = retroKspace.gauss(1:share+1,share,0);
                     weights = weights/max(weights);
-                    
+
                     % define ellipsoid regions
                     Rz = round(dimz/share/2);
                     Ry = round(dimy/share/2);
@@ -702,7 +707,7 @@ classdef retroKspace
                             C(i,:,:,:) = L(i,:,:,:) - L(i-1,:,:,:);
                         end
                     end
-                    
+
                     % weights
                     for i = 1:share
                         for j = 1:share
@@ -710,54 +715,54 @@ classdef retroKspace
                         end
                     end
                     weights = 0.5*weights/max(weights(:));
-                    
+
                     % apply sharing to k-space
                     for frame = 1:nrframes
-                        
+
                         for i = -share:share
-                            
+
                             sharedframe = frame + i;
                             sharedframe(sharedframe < 1) = nrframes - sharedframe - 1;
                             sharedframe(sharedframe > nrframes) = sharedframe - nrframes;
-                            
+
                             if i~=0
-                                
+
                                 for j = 1:share
-                                    
+
                                     ROI = reshape(squeeze(C(j,:,:,:)),[1 1 dimz dimy dimx 1])*weights(j,abs(i));
                                     new_kspace(:,frame,:,:,:,:)   = new_kspace(:,frame,:,:,:,:)   + sorted_kspace(:,sharedframe,:,:,:,:)   .* ROI;
                                     new_averages(:,frame,:,:,:,:) = new_averages(:,frame,:,:,:,:) + sorted_averages(:,sharedframe,:,:,:,:) .* ROI;
-                                    
+
                                 end
-                                
+
                             end
-                            
+
                         end
-                        
+
                     end
-                    
+
                     % respiratory of cardiac frames
                     if nr_resp_frames > 1
                         new_kspace = permute(new_kspace,[2,1,3,4,5,6]);
                         new_averages = permute(new_averages,[2,1,3,4,5,6]);
                     end
-                    
+
                 end
-                
+
                 % normalize by number of averages
                 new_kspace = new_kspace./new_averages;
                 new_kspace(isnan(new_kspace)) = complex(0);     % correct for NaN because of division by zero in case of missing k-lines
                 new_kspace(isinf(new_kspace)) = complex(0);
-                
+
                 % apply a circular Tukey filter
                 filterwidth = 0.1;
                 tukeyfilter(1,1,:,:,:,1) = retroKspace.circtukey3D(dimz,dimy,dimx,lev,row,col,filterwidth);
                 new_kspace = new_kspace.*tukeyfilter;
-                
+
                 % report back
                 objKspace.kSpace{coilnr} = new_kspace;
                 objKspace.kSpaceAvg = new_averages;
-                
+
             end
 
         end
@@ -1053,7 +1058,7 @@ classdef retroKspace
         % ---------------------------------------------------------------------------------
         % Fill K-space RADIAL
         % ---------------------------------------------------------------------------------
-        function objKspace = fillKspace2D_RADIAL(objKspace, objNav, objData)
+        function objKspace = fillKspace2D_RADIAL(objKspace, objNav, objData, app)
             
             objKspace.kSpace = cell(objData.nr_coils);
             objKspace.kSpaceAvg = [];
@@ -1128,21 +1133,10 @@ classdef retroKspace
                     
                 end
                 
-                % find center of k-space
-                kspacesum = squeeze(sum(sorted_kspace,[1 2 3 6]));                  % sum over all slices frames and dynamics
-                [row, col] = find(ismember(kspacesum, max(kspacesum(:))));          % coordinate of k-space maximum = center of k-space
                 
                 sorted_kspace = sorted_kspace./sorted_averages;                     % normalize by number of averages
                 sorted_kspace(isnan(sorted_kspace)) = complex(0);                   % correct for NaN or Inf because of division by zero in case of missing k-lines
                 sorted_kspace(isinf(sorted_kspace)) = complex(0);
-          
-                % imshow(squeeze(real(sorted_kspace(1,1,1,:,:))),[]);
-                % plot(squeeze(abs(kspace(1,1,1,:,64))));
-                
-                % Apply a circular Tukey filter
-                filterwidth = 0.1;
-                tukeyfilter(1,1,1,:,:,1) = retroKspace.circtukey2D(dimy,dimx,row,col,filterwidth);
-                sorted_kspace = sorted_kspace.*tukeyfilter;
                 
                 % Report back
                 objKspace.kSpace{coilnr} = sorted_kspace;
@@ -1153,27 +1147,125 @@ classdef retroKspace
         end
         
         
+        % ---------------------------------------------------------------------------------
+        % Fill K-space 3D UTE
+        % ---------------------------------------------------------------------------------
+        function objKspace = fillKspace3Dute(objKspace, objData, app)
+
+            % This function creates 2 arrays
+            % (1) the kspace data sorted into the correct cardiac frames and phase-encoding positions
+            % (2) the corresponding trajectories
+
+            objKspace.kSpace = cell(objData.nr_coils);
+            objKspace.kSpaceTraj = [];
+            objKspace.kSpaceAvg = [];
+            includeWindow = objData.includeWindow.*objData.excludeWindow;
+            cardBinAss = objKspace.cardBinNrs;
+            respBinAss = objKspace.respBinNrs;
+          
+            for coilnr = 1:objData.nr_coils
+
+                % Unsorted data
+                rawdata = objKspace.raw{coilnr};
+
+                % Dynamics assignment
+                dyn_bin_ass = round(linspace(0.5, app.nrDynamics+0.49, objData.nrKlines));       % list of increasing integer number 1 .. nr_dynamics evenly spaced over the entire acquistion time
+
+                % Kspace radial spokes
+                nrKpoints = length(objKspace.gradTrajectory);
+
+                % Gradient delays
+                gradXdelay = 0;
+                gradYdelay = 0;
+                gradZdelay = 0;
+                offset = 3;
+                trajX = fraccircshift([0;0;0;0;0;objKspace.gradTrajectory;0.5;0.5;0.5;0.5;0.5],gradXdelay);
+                trajX = trajX(6:nrKpoints+5);
+                trajY = fraccircshift([0;0;0;0;0;objKspace.gradTrajectory;0.5;0.5;0.5;0.5;0.5],gradYdelay);
+                trajY = trajY(6:nrKpoints+5);
+                trajZ = fraccircshift([0;0;0;0;0;objKspace.gradTrajectory;0.5;0.5;0.5;0.5;0.5],gradZdelay);
+                trajZ = trajZ(6:nrKpoints+5);
+              
+                for cnt = 1:nrKpoints
+                    spoke(1,1,:,1,cnt,1,1) = nrKpoints*(objKspace.trajectory(1,:)/32767)*trajX(cnt);
+                    spoke(1,1,:,1,cnt,1,2) = nrKpoints*(objKspace.trajectory(2,:)/32767)*trajY(cnt);
+                    spoke(1,1,:,1,cnt,1,3) = nrKpoints*(objKspace.trajectory(3,:)/32767)*trajZ(cnt);
+                end
+
+                % Sort
+                sorted_kspace = complex(zeros(app.nrRespFrames,app.nrCardFrames,objData.nrKlines,1,nrKpoints,app.nrDynamics));   % fill temp k-space with zeros
+                sorted_traj = zeros(app.nrRespFrames,app.nrCardFrames,objData.nrKlines,1,nrKpoints,app.nrDynamics,3);            % fill temp trajectory with zeros
+                unsorted_kspace = reshape(rawdata,[1,size(rawdata),1]);
+                
+                % Phase correction
+                % ph = angle(unsorted_kspace(:,:,:,:,1));
+                % unsorted_kspace = unsorted_kspace.*exp(-1j*ph);
+               
+                for cnt = 1:objData.nrKlines                % loop over acquired 3D spokes
+
+                    if (cardBinAss(cnt) > 0) && (includeWindow(cnt) == 1)
+
+                        sorted_kspace(respBinAss(cnt),cardBinAss(cnt),cnt,1,:,dyn_bin_ass(cnt)) = unsorted_kspace(1,cnt,1,1,1+offset:nrKpoints+offset,1);
+                        sorted_traj(respBinAss(cnt),cardBinAss(cnt),cnt,1,:,dyn_bin_ass(cnt),:) = spoke(1,1,cnt,1,:,1,:);
+
+                    end
+                end
+
+                % Report back kspace per coil
+                objKspace.kSpace{coilnr} = sorted_kspace;
+
+            end
+
+            % Report back kspace trajectory
+            objKspace.kSpaceTraj = sorted_traj;
+
+        end % fillKspace3Dute
+
+
         
         % ---------------------------------------------------------------------------------
         % Reshape k-space
         % ---------------------------------------------------------------------------------
-        function objKspace = reshapeKspace(objKspace)
-            
-            % Reshape to either cardiac or respiratory CINE
-            
-            [s1,s2,s3,s4,s5,s6] = size(objKspace.kSpaceAvg);
-            s = max([s1,s2]);
-            nrCoils = length(objKspace.kSpace);
-            for i = 1:nrCoils
-                objKspace.kSpace{i} = reshape(objKspace.kSpace{i},[s,s3,s4,s5,s6]);
-                objKspace.kSpace{i} = permute(objKspace.kSpace{i},[1,4,3,2,5,6]);
-            end
-            objKspace.kSpaceAvg = reshape(objKspace.kSpaceAvg,[s,s3,s4,s5,s6]);
-            objKspace.kSpaceAvg = permute(objKspace.kSpaceAvg,[1,4,3,2,5,6]);
-            
-            % kSpace = frames, X, Y, Z, dynamics
+        function objKspace = reshapeKspace(objKspace,objData)
+        
+            switch objData.dataType
 
-        end
+                case {'2D','2Dms','3D','3Dp2roud'}
+
+                    % Reshape to either cardiac or respiratory CINE
+
+                    [s1,s2,s3,s4,s5,s6] = size(objKspace.kSpaceAvg);
+                    s = max([s1,s2]);
+                    nrCoils = length(objKspace.kSpace);
+                    for i = 1:nrCoils
+                        objKspace.kSpace{i} = reshape(objKspace.kSpace{i},[s,s3,s4,s5,s6]);
+                        objKspace.kSpace{i} = permute(objKspace.kSpace{i},[1,4,3,2,5,6]);
+                    end
+                    objKspace.kSpaceAvg = reshape(objKspace.kSpaceAvg,[s,s3,s4,s5,s6]);
+                    objKspace.kSpaceAvg = permute(objKspace.kSpaceAvg,[1,4,3,2,5,6]);
+
+                    % kSpace = frames, X, Y, Z, dynamics
+
+
+                case {'2Dradial','3Dute'}
+
+                    % Reshape to either cardiac or respiratory CINE
+
+                    [s1,s2,s3,s4,s5,s6] = size(objKspace.kSpace{1});
+                    s = max([s1,s2]);
+                    nrCoils = length(objKspace.kSpace);
+                    for i = 1:nrCoils
+                        objKspace.kSpace{i} = reshape(objKspace.kSpace{i},[s,s3,s4,s5,s6]);
+                        
+                    end
+                    objKspace.kSpaceTraj = reshape(objKspace.kSpaceTraj,[s,s3,s4,s5,s6,3]);
+                    objKspace.kSpaceAvg = 1; % to do
+
+                    % kSpace = frames, spokes, 1, readout, dynamics    
+
+            end
+
+        end % reshapeKspace
         
 
         
@@ -1216,7 +1308,7 @@ classdef retroKspace
                     objKspace.trajectory = array_trajectory(objData.NO_VIEWS,objData.gp_var_mul);
                     
                 case 4 % reserved for 3D P2ROUD acquisition
-                    flist = dir(fullfile(app.mrd_import_path,'*.txt'));
+                    flist = dir(fullfile(app.mrdImportPath,'*.txt'));
                     if ~isempty(flist)
                         objKspace.trajectory = load([flist(1).folder,filesep,flist(1).name]);
                         objData.dataType = '3Dp2roud';
@@ -1227,10 +1319,24 @@ classdef retroKspace
                         app.TextMessage('WARNING: P2ROUD trajectory file not found, assuming linear k-space filling ...');
                         app.SetStatus(1);
                     end
-                    
+
                 case 8 % reserved for radial
                     objKspace.trajectory = radial_trajectory(objData.nrKsteps);
-                    
+
+                case 9 % 3D UTE
+                    flist = dir(fullfile(app.mrdImportPath,'*.txt'));
+                    if ~isempty(flist)
+                        objKspace.trajectory = load([flist(1).folder,filesep,flist(1).name]);
+                        objKspace.gradTrajectory = load('ktraj.txt');
+                        objData.dataType = '3Dute';
+                        app.TextMessage(strcat('3D UTE trajectory: ',{' '},flist(1).name));
+                        objKspace.trajectory = reshape(objKspace.trajectory,[3,length(objKspace.trajectory)/3]);
+                    else
+                        objKspace.trajectory = linear_trajectory(objData.nrKsteps);
+                        app.TextMessage('WARNING: 3D UTE trajectory file not found, reconstruction will fail ...');
+                        app.SetStatus(1);
+                    end
+
             end
             
             % ---------------------------------------------------------------------------------

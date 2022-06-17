@@ -96,6 +96,9 @@ classdef retroNav
                     
                 case '2Dradial'
                     extractNavigatorRadial;
+
+                case '3Dute'
+                    extractNavigator3Dute;
                     
             end
             
@@ -384,6 +387,72 @@ classdef retroNav
                 end
                 
             end % extractNavigatorRadial
+
+
+            % ---------------------------------------------------------------------------------
+            % ----- 3D UTE data ---------------------------------------------------------------
+            % ---------------------------------------------------------------------------------
+            function extractNavigator3Dute
+                
+                objNav.navAmplitude = cell(objData.nr_coils);
+                
+                for coilnr = 1:objData.nr_coils
+                    
+                    % extracts the navigator data from the raw k-space data
+                    % outputs a 1D array of doubles
+                    
+                    % size of the input data, 4th dimension is the readout direction which contains the navigator
+                    [nrRepetitions,~,~,dimx] = size(objData.data{coilnr});
+                    
+                    % extract the navigator and put it in a long array
+                    navDataAmplitude = reshape(permute(objData.data{coilnr},[3,2,1,4]),nrRepetitions,dimx);
+                    
+                    if objData.nr_nav_points_used > 1
+                        
+                        range = objData.nr_nav_points_used;
+                        
+                        % Take the principal component of the data
+                        data = navDataAmplitude(:,objData.primary_navigator_point:objData.primary_navigator_point+range);
+                        [coeff,~,~] = pca(data);
+                        dataPCA = data*coeff;
+                        
+                        % Take the principal component of the data
+                        amplitude = abs(dataPCA(:,1))';
+                        phase = angle(dataPCA(:,1))';
+                        
+                    else
+                        
+                        % single nav point
+                        amplitude = abs(navDataAmplitude(:,objData.primary_navigator_point))';
+                        phase = angle(navDataAmplitude(:,objData.primary_navigator_point))';
+                        
+                    end
+                    
+                    % Detrend
+                    amplitude(1,:) = detrend(amplitude(1,:));
+                    
+                    % Make a guess whether the respiration peaks are positive or negative
+                    nrElements = length(amplitude);
+                    firstElement = round(0.4*nrElements);
+                    lastElement = round(0.6*nrElements);
+                    maxAmplitude = abs(max(amplitude(1,firstElement:lastElement)));
+                    minAmplitude = abs(min(amplitude(1,firstElement:lastElement)));
+                    if minAmplitude > maxAmplitude
+                        amplitude = -amplitude;
+                    end
+                    
+                    % multiple with +1 or -1 depending on switch
+                    amplitude = amplitude * objNav.upDown;
+                    
+                    % return the final nav amplitude
+                    objNav.navAmplitude{coilnr} = amplitude;
+                    objNav.navPhase{coilnr} = phase;
+                    
+                end
+                
+            end % extractNavigator3Dute
+
+
             
         end % extractNavigator
        
@@ -411,7 +480,7 @@ classdef retroNav
                 amplitude = objNav.navAmplitude{1}';
                 
             end
-            
+
             % include only those navigators in when includewindow == 1 and excludewindow == 1
             amplitude = amplitude.*objData.includeWindow.*objData.excludeWindow;
             
@@ -421,19 +490,24 @@ classdef retroNav
             n = length(amplitude);                      % number of samples
             objNav.frequency = (0:n-1)*(fs/n)*60;       % frequency range in bpm
             power = abs(y).^2/n;                        % power of the DFT
-            
+    
             % determine frequency and harmonics of k-space trajectory and set those to zero
-            kfreq = 60/(0.001*objData.NO_VIEWS*objData.TR);
-            ifreq = (fs/n)*60;
-            
-            for i = 1:10
-                power(round(i*kfreq/ifreq)+1) = 0;
-                power(round(i*kfreq/ifreq))   = 0;
-                power(round(i*kfreq/ifreq)-1) = 0;
+            if objData.NO_VIEWS > 1
+
+                kfreq = 60/(0.001*objData.NO_VIEWS*objData.TR);
+                ifreq = (fs/n)*60;
+
+                for i = 1:10
+                    power(round(i*kfreq/ifreq)+1) = 0;
+                    power(round(i*kfreq/ifreq))   = 0;
+                    power(round(i*kfreq/ifreq)-1) = 0;
+                end
+
             end
             
             % smooth the power spectrum with moving average
-            power = movmean(power,3);
+            power = medfilt1(power,6);
+            %power = movmean(power,3);
             objNav.powerSpectrum = power;
             
             % detect heart rate
@@ -596,8 +670,12 @@ classdef retroNav
             % extracts the ECG trigger points from the navigators
             
             % find the peaks and locations = fast
-            objNav.heartTrigPoints = retroNav.peakFinder(objNav.heartNav',[],[],[],false,true);
-            
+            try
+                objNav.heartTrigPoints = retroNav.peakFinder(objNav.heartNav',[],[],[],false,true);
+            catch
+                objNav.heartTrigPoints = []; % Failure
+            end
+
             % trigger points are in units of samples (actual time is thus heartTrigPoints*TR)
          
             % backup plan in case peakFinder fails = slower
@@ -637,8 +715,12 @@ classdef retroNav
             % extracts the ECG trigger points from the navigators
             
             % find the peaks and locations
-            objNav.respTrigPoints = retroNav.peakFinder(objNav.respNav',[],[],[],false,true);
-             
+            try
+                objNav.respTrigPoints = retroNav.peakFinder(objNav.respNav',[],[],[],false,true);
+            catch
+                objNav.respTrigPoints = []; % Failure
+            end
+
             % backup plan in case peakFinder fails
             if length(objNav.respTrigPoints)<10
                 
@@ -712,7 +794,7 @@ classdef retroNav
             
             resp = rate';
             respf = movmedian(resp,32);     % smooth trendline
-            
+
             % determine the mean respiration rate
             includedata = objData.includeWindow.*objData.excludeWindow;                     % data-window which is included
             try

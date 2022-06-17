@@ -43,6 +43,8 @@ classdef retroReco
                 drawnow;
                 cs_reco2D_mc;
                 app.ProgressGauge.Value = 100;
+                app.validRecoFlag = true;
+                app.validSenseMapFlag = true;
                 drawnow;
                 
             else
@@ -55,6 +57,8 @@ classdef retroReco
                 drawnow;
                 cs_reco2D_mat_mc;
                 app.ProgressGauge.Value = 100;
+                app.validRecoFlag = true;
+                app.validSenseMapFlag = true;
                 drawnow;
                 
             end
@@ -375,6 +379,8 @@ classdef retroReco
                 drawnow;
                 cs_reco3D_mc;
                 app.ProgressGauge.Value = 100;
+                app.validRecoFlag = true;
+                app.validSenseMapFlag = true;
                 drawnow;
                 
             else
@@ -386,6 +392,8 @@ classdef retroReco
                 app.SetStatus(1);
                 cs_reco3D_mat_mc;
                 app.ProgressGauge.Value = 100;
+                app.validRecoFlag = true;
+                app.validSenseMapFlag = true;
                 drawnow;
                 
             end
@@ -684,9 +692,9 @@ classdef retroReco
                 
         
         % ---------------------------------------------------------------------------------
-        % Radial reconstruction with the Bart toolbox
+        % 2D radial reconstruction with the Bart toolbox /// NOT FUNCTIONAL ///
         % ---------------------------------------------------------------------------------
-        function objReco = recoRadial(objReco, objData, objKspace, app)
+        function objReco = reco2Dradial(objReco, objData, objKspace, app)
             
             app.TextMessage('Reconstructing 2D radial data with the BART toolbox ...');
             app.ProgressGauge.Value = 0;
@@ -772,10 +780,6 @@ classdef retroReco
             % calculate sensitivity map
             sensitivities = bart(app, 'ecalib -m1', ksp_zerop); %#ok<NASGU> 
             
-            %disp(size(sensitivities))
-            %sensitivities = ones(128,128);
-            %disp(size(sensitivities))
-            
             sensitivities = ones(dimx,dimx,1,1,1,1,1,1,1,1,1,1,1);
             
             picscommand = ['pics -S -u1 -RW:6:0:',num2str(Wavelet),' -RT:6:0:',num2str(TVxy),' -RT:1024:0:',num2str(TVt),' -t'];
@@ -798,9 +802,212 @@ classdef retroReco
             app.ProgressGauge.Value = 100;
             drawnow;
             
-        end
+        end % reco2Dradial
         
         
+         
+        
+        % ---------------------------------------------------------------------------------
+        % 3D UTE reconstruction with the Bart toolbox
+        % ---------------------------------------------------------------------------------
+        function objReco = reco3Dute(objReco, objData, objKspace, app)
+
+            if app.bartDetectedFlag
+
+                app.TextMessage('Reconstructing 3D UTE data with the BART toolbox ...');
+                app.ProgressGauge.Value = 0;
+                drawnow;
+
+                Wavelet = app.WVxyzEditField.Value;
+                TVxyz = app.TVxyzEditField.Value;
+                LR = app.LLRxyzEditField.Value;
+                TVt = app.TVcineEditField.Value;
+                TVd = app.TVdynEditField.Value;
+                nCoils = objData.nr_coils;
+
+                % Wavelet = wavelet L1-norm regularization factor
+                % TVxyz = total variation in xyz-dimension regularization
+                % LR = low rank regularization
+                % TVt = total variation in time regularization
+                % TVd = total variation in dynamic dimension regularization
+                % nc = number of RF receiver coils
+                
+                dimx = size(objKspace.kSpace{1},4);
+                dimy = dimx;
+                dimz = dimx;
+                dimf = size(objKspace.kSpace{1},1);
+                dimd = size(objKspace.kSpace{1},5);
+               
+                kSpace = zeros(size(objKspace.kSpace{1}));
+                for i = 1:nCoils
+                    kSpace(:,:,:,:,:,i) = objKspace.kSpace{i};
+                end
+                traj = objKspace.kSpaceTraj;
+                
+                % Bart dimensions  Bart   Matlab
+                % 	READ_DIM,       0       1   z
+                % 	PHS1_DIM,       1       2   y
+                % 	PHS2_DIM,       2       3   x
+                % 	COIL_DIM,       3       4   coils
+                % 	MAPS_DIM,       4       5   sense maps
+                % 	TE_DIM,         5       6
+                % 	COEFF_DIM,      6       7
+                % 	COEFF2_DIM,     7       8
+                % 	ITER_DIM,       8       9
+                % 	CSHIFT_DIM,     9       10
+                % 	TIME_DIM,       10      11  cardiac / respiratory CINE frames
+                % 	TIME2_DIM,      11      12  dynamics
+                % 	LEVEL_DIM,      12      13
+                % 	SLICE_DIM,      13      14  slices
+                % 	AVG_DIM,        14      15
+             
+                % Rearrange for BART         1  2  3  4  5  6  7  8  9 10 11 12 13 14
+                kSpacePics = permute(kSpace,[7, 4, 2, 6, 3, 8, 9,10,11,12,1, 5, 13,14]);
+                
+                % Rearrange for BART     1  2  3  4  5  6  7  8  9 10 11 12 13 14
+                trajPics = permute(traj,[6, 4, 2, 3, 7, 8, 9,10,11,12, 1, 5,13,14]);
+  
+                % Coil sensitivities from sum of all frames and dynamics
+                if nCoils > 1
+                    kSpacePicsSum = sum(kSpacePics,[11,12]);
+                    trajPicsSum = sum(trajPics,[11,12]);
+                    app.TextMessage('Calculating coil sensitivity maps ...');
+                    lowResImage = bart(app,'nufft -i -d64:64:64 -t', trajPicsSum, kSpacePicsSum);
+                    lowResKspace = bart(app,'fft -u 7', lowResImage);
+                    kSpaceZeroFilled = bart(app,['resize -c 0 ',num2str(dimz),' 1 ',num2str(dimy),' 2 ',num2str(dimx)], lowResKspace);
+                    sensitivities = bart(app,'ecalib -S -t0.0005 -m1', kSpaceZeroFilled);
+                else
+                    sensitivities = ones(dimz,dimy,dimx,1,1,1,1,1,1,1,1,1,1,1);
+                end
+
+                % Density correction
+                app.TextMessage('Calculating density correction ...');
+                denseOnes = ones(size(kSpacePics));
+                denseTmp = bart(app,strcat('nufft -d',num2str(dimx),':',num2str(dimx),':',num2str(dimx),' -a'),trajPics,denseOnes);
+                density = bart(app,'nufft ',trajPics,denseTmp);
+                density = density.^(-1/3);
+                density(isnan(density)) = 0;
+                density(isinf(density)) = 0;
+
+                % PICS reconstruction
+                app.TextMessage('PICS reconstruction ...');
+                picsCommand = 'pics -i30 -d10 ';
+                if Wavelet>0
+                    picsCommand = [picsCommand,' -RW:7:0:',num2str(Wavelet)];
+                end
+                if TVxyz>0
+                    picsCommand = [picsCommand,' -RT:7:0:',num2str(TVxyz)];
+                end
+                if LR>0
+                    % Locally low-rank in the spatial domain
+                    blocksize = round(dimx/16);  % Block size
+                    picsCommand = [picsCommand,' -RL:7:7:',num2str(LR),' -b',num2str(blocksize)];
+                end
+                if TVt>0
+                    picsCommand = [picsCommand,' -RT:1024:0:',num2str(TVt)];
+                end
+                if TVd>0
+                    picsCommand = [picsCommand,' -RT:2048:0:',num2str(TVd)];
+                end
+                igrid = bart(app,picsCommand,'-t',trajPics,'-p',density,kSpacePics,sensitivities);
+                
+                % Root sum of squares over all coils
+                recoImage = bart(app,'rss 8', igrid);
+
+                % Rearrange to correct orientation: frames, x, y, z, dynamics
+                imageReg = reshape(recoImage,[dimz,dimy,dimx,dimf,dimd]);
+                imageOut = flip(flip(permute(imageReg,[4,1,2,3,5]),3),4);
+                
+                % Sense map orientations: x, y, z, map1, map2
+                senseMap1 = flip(flip(permute(abs(sensitivities),[3,2,1,4,5,6,7,8,9,10,11,12,13,14]),2),3);
+                
+                % Normalize sense map to reasonable value range
+                senseMap1 = senseMap1*4095/max(senseMap1(:));
+                
+                % Shift image in phase-encoding directions if needed
+                objReco.movieExp = circshift(imageOut,-objData.pixelshift1,3);
+                objReco.movieExp = circshift(imageOut,-objData.pixelshift2,4);
+                objReco.senseMap = circshift(senseMap1,-objData.pixelshift1,3);
+                objReco.senseMap = circshift(senseMap1,-objData.pixelshift2,4);
+
+                app.validRecoFlag = true;
+                app.validSenseMapFlag = true;
+                app.ProgressGauge.Value = 100;
+                drawnow;
+
+            else
+
+                app.TextMessage('BART toolbox not available ...');
+                app.TextMessage('3D UTE reconstruction using 3D NUFFT ...');
+                app.ProgressGauge.Value = 0;
+                
+                dimx = size(objKspace.kSpace{1},4);
+                dimy = dimx;
+                dimz = dimx;
+                dimf = size(objKspace.kSpace{1},1);
+                dimd = size(objKspace.kSpace{1},5);
+                nCoils = objData.nr_coils;
+                loops = dimf*dimd*nCoils;
+                app.TextMessage('Slow reconstruction ...');
+                app.TextMessage(strcat('Estimated reconstruction time >',{' '},num2str(loops*2),{' '},'min ...'));
+                
+                traj = objKspace.kSpaceTraj;
+                image = zeros(dimf,dimx,dimy,dimz,dimd,nCoils);
+                sensitivities = 4095*ones(dimz,dimy,dimx,1,1,1,1,1,1,1,1,1,1,1);
+              
+                maxit = 10;     % 0 or 1 for gridding, higher values for conjugate gradient
+                damp = 0;       % Tikhonov penalty on ||x||
+                weight = [];    % data weighting (optional)
+                partial = 0.5;  % Tikhobov penalty on ||imag(x))||
+      
+                cnt = 0;
+
+                for dynamic = 1:dimd
+
+                    for frame = 1:dimf
+
+                        for coil = 1:nCoils
+
+                            app.ProgressGauge.Value = round(100*cnt/loops);
+                            drawnow;
+
+                            om = permute(squeeze(traj(frame,:,1,:,dynamic,:)),[3,2,1]);
+                            obj = nufft_3d(om,dimx);
+
+                            data = squeeze(objKspace.kSpace{coil}(frame,:,1,:,dynamic));
+                            data = permute(data,[2 1]);
+                            data = data(:);
+                       
+                            image(frame,:,:,:,dynamic,coil) = obj.iNUFT(data,maxit,damp,weight,'phase-constraint',partial);
+                       
+                            cnt = cnt + 1;
+
+                        end
+
+                    end
+
+                end
+
+                % Root sum of squares over coil dimenion
+                image = rssq(image,6);
+    
+                % Shift image in phase-encoding directions if needed
+                objReco.movieExp = circshift(image,-objData.pixelshift1,3);
+                objReco.movieExp = circshift(image,-objData.pixelshift2,4);
+                objReco.senseMap = circshift(sensitivities,-objData.pixelshift1,3);
+                objReco.senseMap = circshift(sensitivities,-objData.pixelshift2,4);
+                
+                app.validRecoFlag = true;
+                app.validSenseMapFlag = true;
+                app.ProgressGauge.Value = 100;
+                drawnow;
+
+            end
+
+        end % reco3Dute
+
+
+
         
         % ---------------------------------------------------------------------------------
         % Normalize movie intensity

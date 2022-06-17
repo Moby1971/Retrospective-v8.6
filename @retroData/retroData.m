@@ -92,7 +92,7 @@ classdef retroData
         % ---------------------------------------------------------------------------------
         % Object constructor
         % ---------------------------------------------------------------------------------
-        function obj = retroData(parameter,mridata)
+        function obj = retroData(parameter, mridata)
             
             if nargin == 2
                 
@@ -382,7 +382,22 @@ classdef retroData
         % ---------------------------------------------------------------------------------
         function obj = acquisitionType(obj, app)
             
-            if obj.radial_on == 1
+            
+            if obj.NO_VIEWS == 1 && obj.NO_VIEWS_2 == 1 && obj.EXPERIMENT_ARRAY > 1000
+
+                obj.validDataFlag = true;
+
+                obj.dataType = '3Dute';
+
+                for i=1:obj.nr_coils
+                    %                             spokes,1,1,X
+                    obj.data{i} = permute(obj.data{i},[1,4,3,2]);
+                end
+
+                obj.primary_navigator_point = 1;
+                obj.nr_repetitions = size(obj.data{1},1);
+
+            elseif obj.radial_on == 1
                 
                 obj.validDataFlag = true;
                 
@@ -441,25 +456,29 @@ classdef retroData
                     obj.nr_nav_points_used = obj.primary_navigator_point;
                 end
                 obj.nr_repetitions = size(obj.data{1},1);
-
-                % Message the user on the type of data
-                switch obj.dataType
-                    case '2D'
-                        app.TextMessage('2D single-slice data ...');
-                    case '3D'
-                        app.TextMessage('3D data ...');
-                    case '2Dms'
-                        app.TextMessage('2D multi-slice data ...');
-                    case '2Dradial'
-                        app.TextMessage('2D radial data ...');
-                end
                 
             else
                 
                 obj.validDataFlag = false;
-                
+
             end
+
+            % Message the user on the type of data
+            switch obj.dataType
+
+                case '2D'
+                    app.TextMessage('2D single-slice data ...');
+                case '3D'
+                    app.TextMessage('3D data ...');
+                case '2Dms'
+                    app.TextMessage('2D multi-slice data ...');
+                case '2Dradial'
+                    app.TextMessage('2D radial data ...');
+                case '3Dute'
+                    app.TextMessage('3D UTE data ...');
             
+            end
+
         end
         
         
@@ -470,47 +489,42 @@ classdef retroData
         % function, scout, VFA
         % ---------------------------------------------------------------------------------
         function obj = guessRecoType(obj)
-            
-            if strcmp(obj.dataType,'2D') || strcmp(obj.dataType,'2Dms') || strcmp(obj.dataType,'2Dradial')
-                
-                if obj.nr_repetitions > 200
-                    
-                    obj.recoGuess = 'diastolic function';
-                    
-                else
-                    
+
+            switch obj.dataType
+
+                case {'2D','2Dradial'}
+
+                    if obj.nr_repetitions > 200
+                        obj.recoGuess = 'diastolic function';
+                    else
+                        obj.recoGuess = 'systolic function';
+                    end
+
+                case '2Dms'
+
+                    if obj.nr_repetitions > 200
+                        obj.recoGuess = 'diastolic function';
+                    else
+                        obj.recoGuess = 'systolic function';
+                    end
+
+                    slices = [obj.s_angle_var ; obj.p_angle_var ; obj.r_angle_var]';
+                    nr_unique_slices = size(unique(slices,'rows'),1);
+
+                    if nr_unique_slices > 1
+                        obj.recoGuess = 'scout';
+                    end
+
+                case {'3D','3Dute'}
+
                     obj.recoGuess = 'systolic function';
-                    
-                end
-                
-                
+
+                    if obj.vfaDataFlag
+                        obj.recoGuess = 'variable flip-angle';
+                    end
+
             end
-            
-            if strcmp(obj.dataType,'2Dms')
-                
-                slices = [obj.s_angle_var ; obj.p_angle_var ; obj.r_angle_var]';
-                nr_unique_slices = size(unique(slices,'rows'),1);
-                
-                if nr_unique_slices > 1
-                    
-                    obj.recoGuess = 'scout';
-                    
-                end
-                
-            end
-            
-            if strcmp(obj.dataType,'3D')
-                
-                obj.recoGuess = 'systolic function';
-                
-                if obj.vfaDataFlag
-                    
-                    obj.recoGuess = 'variable flip-angle';
-                    
-                end
-                
-            end
-            
+
         end
         
 
@@ -590,7 +604,7 @@ classdef retroData
 
             num2read = no_expts*no_echoes*no_slices*no_views_2*no_views*no_samples*iscomplex; %*datasize;
             [m_total, count] = fread(fid,num2read,dataformat); % reading all the data at once
-
+          
             if iscomplex == 2
                 a=1:count/2;
                 m_real = m_total(2*a-1);
@@ -624,6 +638,8 @@ classdef retroData
                 end
             end
 
+            % pre-allocate the data matrix
+            m_C_1=zeros(no_expts,no_echoes,no_slices,max(ord(:)),max(ord2(:)),no_samples);
             for a=1:no_expts
                 for b=1:no_echoes
                     for c=1:no_slices

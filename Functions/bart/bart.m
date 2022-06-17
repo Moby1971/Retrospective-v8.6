@@ -19,11 +19,15 @@ if ispc
     name = strrep(tempname,' ','_');   % Windows user names with spaces give problems, replace with underscore
 
 
-    in = cell(1, nargin - 2);
+    in = cell(1, nargin-2);
 
-    for i=1:nargin - 2
-        in{i} = strcat(name, 'in', num2str(i));
-        writecfl(in{i}, varargin{i});
+    for i = 1:nargin-2
+        if ischar(varargin{i})
+            in{i} = varargin{i};
+        else
+            in{i} = strcat(name, 'in', num2str(i));
+            writecfl(in{i}, varargin{i});
+        end
     end
 
     in_str = sprintf(' %s', in{:});
@@ -40,6 +44,8 @@ if ispc
     cmdWSL = WSLPathCorrection(cmd);
     in_strWSL = WSLPathCorrection(in_str);
     out_strWSL =  WSLPathCorrection(out_str);
+
+    disp(in_strWSL)
 
     [ERR,cmdout] = system(['wsl bart ',cmd,in_strWSL,out_strWSL]);
 
@@ -110,9 +116,13 @@ if ismac
 
     in = cell(1, nargin - 2);
 
-    for i=1:nargin - 2
-        in{i} = strcat(name, 'in', num2str(i));
-        writecfl(in{i}, varargin{i});
+    for i = 1:nargin-2
+        if ischar(varargin{i})
+            in{i} = varargin{i};
+        else
+            in{i} = strcat(name, 'in', num2str(i));
+            writecfl(in{i}, varargin{i});
+        end
     end
 
     in_str = sprintf(' %s', in{:});
