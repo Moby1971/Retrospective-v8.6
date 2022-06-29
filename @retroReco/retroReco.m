@@ -891,7 +891,7 @@ classdef retroReco
 
                 % PICS reconstruction
                 app.TextMessage('PICS reconstruction ...');
-                picsCommand = 'pics -i30 -d10 ';
+                picsCommand = 'pics -i30 -d1 ';
                 if Wavelet>0
                     picsCommand = [picsCommand,' -RW:7:0:',num2str(Wavelet)];
                 end
@@ -901,6 +901,7 @@ classdef retroReco
                 if LR>0
                     % Locally low-rank in the spatial domain
                     blocksize = round(dimx/16);  % Block size
+                    blocksize(blocksize<4) = 4;
                     picsCommand = [picsCommand,' -RL:7:7:',num2str(LR),' -b',num2str(blocksize)];
                 end
                 if TVt>0
@@ -1092,10 +1093,371 @@ classdef retroReco
             invoke(m_Recon,'Quit');
 
         end % recoSurFiles
+        
+
+        
+
+        % ---------------------------------------------------------------------------------
+        % L-curve calculation
+        % ---------------------------------------------------------------------------------
+        function obj = recoLcurve(obj,objData,objKspace,app)
+
+            % Range of lamda's
+            lambda = logspace(log10(app.Lambda1EditField.Value),log10(app.Lambda2EditField.Value),app.LambdaStepsEditField.Value);
+            lambda = round(lambda,3);
+
+            % Determine which parameters will be optimized
+            par = [0 0 0 0 0];
+            if app.LcurveWVxyzCheckBox.Value  == 1  par(1) = 1; end %#ok<*SEPEX>
+            if app.LcurveTVxyzCheckBox.Value  == 1  par(2) = 1; end
+            if app.LcurveLRxyzCheckBox.Value  == 1  par(3) = 1; end
+            if app.LcurveTVcineCheckBox.Value == 1  par(4) = 1; end
+            if app.LcurveTVdynCheckBox.Value  == 1  par(5) = 1; end
+
+            % Intialize progress gauge
+            totalNumberOfSteps = app.LambdaIterationsEditField.Value * sum(par) * length(lambda);
+            app.ProgressGauge.Value = 0;
+            cnt = 0;
+
+            % Iterations
+            iter = 0;
+            while (iter<app.LambdaIterationsEditField.Value) && (app.stopLcurveFlag==false)
+                iter = iter + 1;
+
+                % Wavelet xyz
+                if par(1)==1
+
+                    % Reset graph
+                    cla(app.LcurveFig);
+                    cla(app.LcurveModelErrorFig);
+                    app.LcurveFig.YLabel.String = "|| WVxyz x_{\lambda} ||_1";
+                    drawnow;
+
+                    x = [];
+                    y = [];
+
+                    i = 0;
+                    while (i<length(lambda)) && (app.stopLcurveFlag==false)
+                        i = i + 1;
+
+                        % Wavelet
+                        app.WVxyzEditField.Value = lambda(i);
+                        app.TextMessage(strcat('L-curve, WVxyz, iteration =',num2str(iter),', lambda =',num2str(lambda(i))));
+
+                        % CS reco
+                        obj.sos = 0;
+                        obj = obj.reco2D(objData, objKspace, app);
+                        Lmovie = obj.movieExp;
+
+                        % L1 norm wavelet
+                        WVxyz = bart(app,'cdf97 6',Lmovie);
+                        y(i) = norm(WVxyz(:),1);
+
+                        % L2 norm
+                        kSpaceIm = bart(app,'fft -u -i 6',Lmovie);
+                        kSpaceIm = bart(app,['resize -c 1 ',num2str(size(objKspace.kSpace{1},2)),' 2 ',num2str(size(objKspace.kSpace{1},3))],kSpaceIm);
+                        x(i) = 0;
+                        for j = 1:objData.nr_coils
+                            mask = objKspace.kSpace{j} ~= 0;
+                            kSpaceDiff = abs(kSpaceIm(:,:,:,:,:,j).*mask) - abs(objKspace.kSpace{j});
+                            x(i) = x(i) + norm(kSpaceDiff(:),2);
+                        end
+
+                        % Plot the data
+                        app.PlotLcurveFig(lambda,x,y);
+
+                        % Update counter
+                        cnt = cnt + 1;
+                        app.ProgressGauge.Value = round(100*cnt/totalNumberOfSteps);
+
+                    end
+
+                end
+
+                % Total Variation spatial domain
+                if par(2)==1
+
+                    % Reset graph
+                    cla(app.LcurveFig);
+                    cla(app.LcurveModelErrorFig);
+                    app.LcurveFig.YLabel.String = "|| TVxyz x_{\lambda} ||_1";
+                    drawnow;
+
+                    x = [];
+                    y = [];
+
+                    i = 0;
+                    while (i<length(lambda)) && (app.stopLcurveFlag==false)
+                        i = i + 1;
+
+                        % Total variation
+                        app.TVxyzEditField.Value = lambda(i);
+                        app.TextMessage(strcat('L-curve, TVxyz, iteration=',num2str(iter),', lambda=',num2str(lambda(i))));
+
+                        % CS reco
+                        obj.sos = 0;
+                        obj = obj.reco2D(objData, objKspace, app);
+                        Lmovie = obj.movieExp;
+
+                        % L1 norm TV in spatial dimension
+                        for dim1=1:size(Lmovie,1)
+                            for dim4=1:size(Lmovie,4)
+                                for dim5=1:size(Lmovie,5)
+                                    for dim6=1:size(Lmovie,6)
+                                        [Gx,Gy] = gradient(squeeze(Lmovie(dim1,:,:,dim4,dim5,dim6)));
+                                        TVxyz(dim1,:,:,dim4,dim5,dim6) = sqrt(Gx.^2 + Gy.^2);
+                                    end
+                                end
+                            end
+                        end
+                        y(i) = norm(TVxyz(:),1);
+
+                        % L2 norm
+                        kSpaceIm = bart(app,'fft -u -i 6',Lmovie);
+                        kSpaceIm = bart(app,['resize -c 1 ',num2str(size(objKspace.kSpace{1},2)),' 2 ',num2str(size(objKspace.kSpace{1},3))],kSpaceIm);
+                        x(i) = 0;
+                        for j = 1:objData.nr_coils
+                            mask = objKspace.kSpace{j} ~= 0;
+                            kSpaceDiff = abs(kSpaceIm(:,:,:,:,:,j).*mask) - abs(objKspace.kSpace{j});
+                            x(i) = x(i) + norm(kSpaceDiff(:),2);
+                        end
+
+                        % Plot the data
+                        app.PlotLcurveFig(lambda,x,y);
+
+                        % Update counter
+                        cnt = cnt + 1;
+                        app.ProgressGauge.Value = round(100*cnt/totalNumberOfSteps);
+
+                    end
+
+                end
+
+                % Low-Rank in spatial domain
+                if par(3)==1
+
+                    % Reset graph
+                    cla(app.LcurveFig);
+                    cla(app.LcurveModelErrorFig);
+                    app.LcurveFig.YLabel.String = "|| LRxyz x_{\lambda} ||_1";
+                    drawnow;
+
+                    x = [];
+                    y = [];
+
+                    i = 0;
+                    while (i<length(lambda)) && (app.stopLcurveFlag==false)
+                        i = i + 1;
+
+                        % Total variation
+                        app.LLRxyzEditField.Value = lambda(i);
+                        app.TextMessage(strcat('L-curve, LRxyz, iteration=',num2str(iter),', lambda=',num2str(lambda(i))));
+
+                        % CS reco
+                        obj.sos = 0;
+                        obj = obj.reco2D(objData, objKspace, app);
+                        Lmovie = obj.movieExp;
+
+                        % L1 norm TV in spatial dimension
+                        for dim1=1:size(Lmovie,1)
+                            for dim4=1:size(Lmovie,4)
+                                for dim5=1:size(Lmovie,5)
+                                    for dim6=1:size(Lmovie,6)
+                                        [Gx,Gy] = gradient(squeeze(Lmovie(dim1,:,:,dim4,dim5,dim6)));
+                                        TVxyz(dim1,:,:,dim4,dim5,dim6) = sqrt(Gx.^2 + Gy.^2);
+                                    end
+                                end
+                            end
+                        end
+                        y(i) = norm(TVxyz(:),1);
+
+                        % L2 norm
+                        kSpaceIm = bart(app,'fft -u -i 6',Lmovie);
+                        kSpaceIm = bart(app,['resize -c 1 ',num2str(size(objKspace.kSpace{1},2)),' 2 ',num2str(size(objKspace.kSpace{1},3))],kSpaceIm);
+                        x(i) = 0;
+                        for j = 1:objData.nr_coils
+                            mask = objKspace.kSpace{j} ~= 0;
+                            kSpaceDiff = abs(kSpaceIm(:,:,:,:,:,j).*mask) - abs(objKspace.kSpace{j});
+                            x(i) = x(i) + norm(kSpaceDiff(:),2);
+                        end
+
+                        % Plot the data
+                        app.PlotLcurveFig(lambda,x,y);
+
+                        % Update counter
+                        cnt = cnt + 1;
+                        app.ProgressGauge.Value = round(100*cnt/totalNumberOfSteps);
+
+                    end
+
+                end
+
+                % Total Variation CINE
+                if par(4)==1
+
+                    % Reset graph
+                    cla(app.LcurveFig);
+                    cla(app.LcurveModelErrorFig);
+                    app.LcurveFig.YLabel.String = "|| TVcine x_{\lambda} ||_1";
+                    drawnow;
+
+                    x = [];
+                    y = [];
+
+                    i = 0;
+                    while (i<length(lambda)) && (app.stopLcurveFlag==false)
+                        i = i + 1;
+
+                        % Total variation
+                        app.TVcineEditField.Value = lambda(i);
+                        app.TextMessage(strcat('L-curve, TVcine, iteration=',num2str(iter),', lambda=',num2str(lambda(i))));
+
+                        % CS reco
+                        obj.sos = 0;
+                        obj = obj.reco2D(objData, objKspace, app);
+                        Lmovie = obj.movieExp;
+
+                        % L1 norm TV
+                        TVcine = circshift(Lmovie,1) - Lmovie;
+                        y(i) = norm(TVcine(:),1);
+
+                        % L2 norm
+                        kSpaceIm = bart(app,'fft -u -i 6',Lmovie);
+                        kSpaceIm = bart(app,['resize -c 1 ',num2str(size(objKspace.kSpace{1},2)),' 2 ',num2str(size(objKspace.kSpace{1},3))],kSpaceIm);
+                        x(i) = 0;
+                        for j = 1:objData.nr_coils
+                            mask = objKspace.kSpace{j} ~= 0;
+                            kSpaceDiff = abs(kSpaceIm(:,:,:,:,:,j).*mask) - abs(objKspace.kSpace{j});
+                            x(i) = x(i) + norm(kSpaceDiff(:),2);
+                        end
+
+                        % Plot the data
+                        app.PlotLcurveFig(lambda,x,y);
+
+                        % Update counter
+                        cnt = cnt + 1;
+                        app.ProgressGauge.Value = round(100*cnt/totalNumberOfSteps);
+
+                    end
+
+                end
+
+                % Total Variation dynamic dimension
+                if par(5)==1
+
+                    % Reset graph
+                    cla(app.LcurveFig);
+                    cla(app.LcurveModelErrorFig);
+                    app.LcurveFig.YLabel.String = "|| TVdyn x_{\lambda} ||_1";
+                    drawnow;
+
+                    x = [];
+                    y = [];
+
+                    i = 0;
+                    while (i<length(lambda)) && (app.stopLcurveFlag==false)
+                        i = i + 1;
+
+                        % Total variation
+                        app.TVdynEditField.Value = lambda(i);
+                        app.TextMessage(strcat('L-curve, TVdyn, iteration=',num2str(iter),', lambda=',num2str(lambda(i))));
+
+                        % CS reco
+                        obj.sos = 0;
+                        obj = obj.reco2D(objData, objKspace, app);
+                        Lmovie = obj.movieExp;
+
+                        % L1 norm TV in dynamic dimension
+                        TVtime = circshift(Lmovie,5) - Lmovie;
+                        y(i) = norm(TVtime(:),1);
+
+                        % L2 norm
+                        kSpaceIm = bart(app,'fft -u -i 6',Lmovie);
+                        kSpaceIm = bart(app,['resize -c 1 ',num2str(size(objKspace.kSpace{1},2)),' 2 ',num2str(size(objKspace.kSpace{1},3))],kSpaceIm);
+                        x(i) = 0; %#ok<*AGROW>
+                        for j = 1:objData.nr_coils
+                            mask = objKspace.kSpace{j} ~= 0;
+                            kSpaceDiff = abs(kSpaceIm(:,:,:,:,:,j).*mask) - abs(objKspace.kSpace{j});
+                            x(i) = x(i) + norm(kSpaceDiff(:),2);
+                        end
+
+                        % Plot the data
+                        app.PlotLcurveFig(lambda,x,y);
+
+                        % Update counter
+                        cnt = cnt + 1;
+                        app.ProgressGauge.Value = round(100*cnt/totalNumberOfSteps);
+
+                    end
+
+                end
 
 
+                % Analyze the L-curve and determine optimal value
+                if ~app.stopLcurveFlag
+                    LcurveAnalysisFnc(lambda,x,y,4);
+                end
 
 
+            end
+
+
+            % Find the point of highest curvature
+            function LcurveAnalysisFnc(lambda,x,y,par)
+
+                % Calculate the curvature and find the maximum
+                xq = log(x);
+                yq = log(y);
+               
+                curv = zeros(length(xq),1);
+
+                for pnt = 2:length(xq)-1
+                    
+                    a = sqrt( (xq(pnt+1)-xq(pnt))^2   + (yq(pnt+1)-yq(pnt))^2   );
+                    b = sqrt( (xq(pnt-1)-xq(pnt))^2   + (yq(pnt-1)-yq(pnt))^2   );
+                    c = sqrt( (xq(pnt-1)-xq(pnt+1))^2 + (yq(pnt-1)-yq(pnt+1))^2 );
+                    s = ( a + b + c ) / 2;
+                    A = sqrt(s*(s-a)*(s-b)*(s-c));
+                    curv(pnt) = 4*A/(a*b*c);
+
+                end
+              
+                % Set lambda to the value corresponding to maximum curvature
+                [~,idx] = max(curv);
+
+                switch par
+
+                    case 1
+                        app.WVxyzEditField.Value = lambda(idx);
+
+                    case 2
+                        app.TVxyzEditField.Value = lambda(idx);
+
+                    case 3
+                        app.LLRxyzEditField.Value = lambda(idx);
+
+                    case 4
+                        app.TVcineEditField.Value = lambda(idx);
+
+                    case 5
+                        app.TVdynEditField.Value = lambda(idx);
+
+                end
+
+                % Indicate the value in the L-curve and model-error curve
+                hold(app.LcurveFig,"on");
+                loglog(app.LcurveFig,x(idx),y(idx),'o','MarkerEdgeColor',app.orange,'MarkerFaceColor',app.brightred,'LineWidth',1.5);
+                hold(app.LcurveFig,"off");
+
+                hold(app.LcurveModelErrorFig,"on");
+                loglog(app.LcurveModelErrorFig,[lambda(1) lambda(end)],[x(idx) x(idx)],'MarkerEdgeColor',[0 .5 .5],'MarkerFaceColor',app.blue,'LineWidth',1.5);
+                hold(app.LcurveModelErrorFig,"off");
+
+                pause(1);
+
+            end % LcurveAnalysisFnc
+
+        end % recoLcurve
 
 
 

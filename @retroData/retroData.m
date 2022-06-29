@@ -508,9 +508,10 @@ classdef retroData
                         obj.recoGuess = 'systolic function';
                     end
 
+                    % Check if there is more than one slice orientation
+                    % Then it is probably a scout measurement
                     slices = [obj.s_angle_var ; obj.p_angle_var ; obj.r_angle_var]';
                     nr_unique_slices = size(unique(slices,'rows'),1);
-
                     if nr_unique_slices > 1
                         obj.recoGuess = 'scout';
                     end
@@ -601,10 +602,10 @@ classdef retroData
                 otherwise
                     dataformat = 'int32';   
             end
-
+          
             num2read = no_expts*no_echoes*no_slices*no_views_2*no_views*no_samples*iscomplex; %*datasize;
             [m_total, count] = fread(fid,num2read,dataformat); % reading all the data at once
-          
+       
             if iscomplex == 2
                 a=1:count/2;
                 m_real = m_total(2*a-1);

@@ -519,7 +519,7 @@ classdef retroKspace
                 
             end
             
-        end
+        end % fillKspace2D
         
         
         
@@ -1173,7 +1173,7 @@ classdef retroKspace
 
                 % Kspace radial spokes
                 nrKpoints = length(objKspace.gradTrajectory);
-
+   
                 % Gradient delays
                 gradXdelay = 0;
                 gradYdelay = 0;
@@ -1198,7 +1198,7 @@ classdef retroKspace
                 unsorted_kspace = reshape(rawdata,[1,size(rawdata),1]);
                 
                 % Phase correction
-                % ph = angle(unsorted_kspace(:,:,:,:,1));
+                % ph = angle(unsorted_kspace(:,:,:,:,offset));
                 % unsorted_kspace = unsorted_kspace.*exp(-1j*ph);
                
                 for cnt = 1:objData.nrKlines                % loop over acquired 3D spokes
@@ -1259,10 +1259,9 @@ classdef retroKspace
                         
                     end
                     objKspace.kSpaceTraj = reshape(objKspace.kSpaceTraj,[s,s3,s4,s5,s6,3]);
-                    objKspace.kSpaceAvg = 1; % to do
 
-                    % kSpace = frames, spokes, 1, readout, dynamics    
-
+                    % kSpace = frames, spokes, 1, readout, dynamics 
+               
             end
 
         end % reshapeKspace
@@ -1272,18 +1271,49 @@ classdef retroKspace
         % ---------------------------------------------------------------------------------
         % K-space statistics
         % ---------------------------------------------------------------------------------
-        function [obj, app] = kSpaceStats(obj, app)
+        function [obj, app] = kSpaceStats(obj, objData, app)
             
-            app.FillingViewField.Value = round(100*nnz(obj.kSpaceAvg)/numel(obj.kSpaceAvg));
-            if app.FillingViewField.Value < 20
-                app.SetStatus(1);
-                app.TextMessage('WARNING: Low k-space filling, decrease number of frames or dynamics ...');
-            end
+            switch app.retroDataPars.dataType
 
-            % Warning in case of large dataset
-            if app.FramesEditField.Value*app.DynamicsEditField.Value > 2000
-                app.SetStatus(1);
-                app.TextMessage('WARNING: large dataset, reconstruction may take a very long time ...');
+                case {'2D','2Dms','3D','3Dp2roud'}
+
+                    % Calculate effective number of averages
+                    app.AveragesViewField.Value = mean2(obj.kSpaceAvg);
+                    objData.NO_AVERAGES = round(app.AveragesViewField.Value);
+
+                    % Filling
+                    app.FillingViewField.Value = round(100*nnz(obj.kSpaceAvg)/numel(obj.kSpaceAvg));
+                    if app.FillingViewField.Value < 20
+                        app.SetStatus(1);
+                        app.TextMessage('WARNING: Low k-space filling, decrease number of frames or dynamics ...');
+                    end
+
+                    % Warning in case of large dataset
+                    if app.FramesEditField.Value*app.DynamicsEditField.Value > 2000
+                        app.SetStatus(1);
+                        app.TextMessage('WARNING: large dataset, reconstruction may take a very long time ...');
+                    end
+
+                case {'2Dradial','3Dute'}
+
+                    % Kspace radial spokes
+                    nrKpoints = length(obj.gradTrajectory);
+
+                    % Kspace
+                    sorted_kspace = obj.kSpace{1};
+
+                    % Number of averages
+                    nyq = (pi/2)*nrKpoints^2;
+                    nrnz = nnz(sorted_kspace(:))/nrKpoints;
+                    obj.kSpaceAvg = (nrnz/nyq)/(app.nrCardFrames*app.nrRespFrames*app.nrDynamics);
+                    app.AveragesViewField.Value = obj.kSpaceAvg;
+                    objData.NO_AVERAGES = round(app.AveragesViewField.Value);
+
+                    % Filling
+                    filling = round(100*(nrnz/nyq)/(app.nrCardFrames*app.nrRespFrames*app.nrDynamics));
+                    filling(filling>100) = 100;
+                    app.FillingViewField.Value = filling;
+
             end
 
         end % kSpaceStats
