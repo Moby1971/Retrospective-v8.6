@@ -1395,7 +1395,7 @@ classdef retroReco
 
                 % Analyze the L-curve and determine optimal value
                 if ~app.stopLcurveFlag
-                    LcurveAnalysisFnc(lambda,x,y,4);
+                    LcurveAnalysisFnc(lambda,x,y,par);
                 end
 
 
@@ -1408,24 +1408,35 @@ classdef retroReco
                 % Calculate the curvature and find the maximum
                 xq = log(x);
                 yq = log(y);
-               
+
+                % Normalize curve
+                xq = xq - min(xq);
+                yq = yq - min(yq);
+                xq = xq/max(xq);
+                yq = yq/max(yq);
+
                 curv = zeros(length(xq),1);
 
                 for pnt = 2:length(xq)-1
-                    
-                    a = sqrt( (xq(pnt+1)-xq(pnt))^2   + (yq(pnt+1)-yq(pnt))^2   );
-                    b = sqrt( (xq(pnt-1)-xq(pnt))^2   + (yq(pnt-1)-yq(pnt))^2   );
-                    c = sqrt( (xq(pnt-1)-xq(pnt+1))^2 + (yq(pnt-1)-yq(pnt+1))^2 );
-                    s = ( a + b + c ) / 2;
-                    A = sqrt(s*(s-a)*(s-b)*(s-c));
-                    curv(pnt) = 4*A/(a*b*c);
+
+                    P0 = [xq(pnt-1), yq(pnt-1), 0];
+                    P1 = [xq(pnt)  , yq(pnt)  , 0];
+                    P2 = [xq(pnt+1), yq(pnt+1), 0];
+                    n1 = (P2 - P0) / norm(P2 - P0);
+                    n2 = (P1 - P0) / norm(P1 - P0);
+
+                    thetaInDegrees = (180/pi)*atan2(norm(cross(n1, n2)), dot(n1, n2));
+
+                    curv(pnt) = thetaInDegrees;
 
                 end
-              
+
                 % Set lambda to the value corresponding to maximum curvature
                 [~,idx] = max(curv);
 
-                switch par
+                [~,pidx] = max(par);
+
+                switch pidx
 
                     case 1
                         app.WVxyzEditField.Value = lambda(idx);
